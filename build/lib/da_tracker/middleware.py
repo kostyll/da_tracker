@@ -9,14 +9,19 @@ from django.utils.importlib import import_module
 import time
 import base64
 import re
-try:
+import sys
+py3 = sys.version[0] == '3'
+py2 = not py3
+
+if py2:
     import urllib2
-except ImportError:
-    import urllib as urllib2
-try:
     import Queue
-except ImportError:
+elif py3:
+    import urllib.request as urllib2
     import queue as Queue
+else:
+    raise Exception("unknown version of the python")
+
 import threading
 import traceback
 
@@ -140,13 +145,22 @@ class TrackerMiddleware(object):
                 data['ct'] = response.get('Content-Type', None)
                 data['vi'] = self._get_visit_id(request, response)
                 data['oh'] += int((time.time() - t1) * 1000)
-                encoded = '%s,%s' % (self._enc(data), source)
+                print (source)
+                if py3:
+                    encoded = ('%s,%s' % (self._enc(data).decode('utf-8'), source))
+                else:
+                    encoded = '%s,%s' % (self._enc(data), source)
                 url = 'https://%s/c.js?d=%s'  % (_setting('SERVER', 'trk2.djangoanalytics.com'), encoded)
+                print ("URL:")
+                print (url)
                 if len(url) <= 2000 and self._client_side_tracking(request, response):
                     pos = self._insertion_point(response.content)
                     if pos != -1:
                         tag = '<script type="text/javascript" async="async" src="%s"></script>\n' % url
-                        response.content = response.content[:pos] + tag + response.content[pos:]
+                        if py3:
+                            response.content = response.content[:pos] + bytes(tag,'utf-8') + response.content[pos:]
+                        else:
+                            response.content = response.content[:pos] + tag + response.content[pos:]
                     else:
                         self._enqueue(url)
                 else:
@@ -163,6 +177,8 @@ class TrackerMiddleware(object):
             data['oh'] += int((time.time() - t1) * 1000)
 
     def _insertion_point(self, html):
+        if py3:
+            html = str(html)
         pos = html.rfind('</body', -500)
         if pos == -1:
             pos = html.rfind('</BODY', -500)

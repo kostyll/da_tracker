@@ -9,8 +9,19 @@ from django.utils.importlib import import_module
 import time
 import base64
 import re
-import urllib2
-import Queue
+import sys
+py3 = sys.version[0] == '3'
+py2 = not py3
+
+if py2:
+    import urllib2
+    import Queue
+elif py3:
+    import urllib.request as urllib2
+    import queue as Queue
+else:
+    raise Exception("unknown version of the python")
+
 import threading
 import traceback
 
@@ -20,7 +31,7 @@ logger = getLogger('django.analytics')
 
 
 IP_FIELDS = ('HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_X_CLUSTER_CLIENT_IP', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR')
-    
+
 def _setting(key, defval):
     return getattr(settings, 'DJANGO_ANALYTICS_' + key, defval)
 
@@ -32,11 +43,11 @@ def _get_class(path):
 
 
 class ReporterThread(threading.Thread):
-    
+
     def __init__(self, queue):
         threading.Thread.__init__(self)
         self.queue = queue
-  
+
     def run(self):
         while True:
             url = self.queue.get()
@@ -48,22 +59,22 @@ class ReporterThread(threading.Thread):
 
 
 class UserProxy(object):
-    
+
     def is_logged_in(self, request):
         return hasattr(request, 'user') and request.user.is_authenticated()
 
     def get_id(self, request):
         return request.user.id
-    
+
     def get_username(self, request):
         return request.user.username
-    
+
     def get_full_name(self, request):
         return request.user.get_full_name()
-    
+
     def get_email(self, request):
         return request.user.email
-    
+
     def get_tags(self, request):
         ret = ['staff'] if request.user.is_staff else []
         if _setting('TAG_USER_GROUPS', False):
@@ -72,8 +83,8 @@ class UserProxy(object):
 
     def get_date_joined(self, request):
         return request.user.date_joined
-    
-        
+
+
 class TrackerMiddleware(object):
 
     def __init__(self):
@@ -97,7 +108,7 @@ class TrackerMiddleware(object):
         data['vn'] = view_func.__module__ + '.' + view_func.__name__ if view_func.__module__ else view_func.__name__
         data['oh'] += int((time.time() - t1) * 1000)
         return None
-    
+
     def process_response(self, request, response):
         t1 = time.time()
         try:
@@ -134,13 +145,22 @@ class TrackerMiddleware(object):
                 data['ct'] = response.get('Content-Type', None)
                 data['vi'] = self._get_visit_id(request, response)
                 data['oh'] += int((time.time() - t1) * 1000)
-                encoded = '%s,%s' % (self._enc(data), source)
+                print (source)
+                if py3:
+                    encoded = ('%s,%s' % (self._enc(data).decode('utf-8'), source))
+                else:
+                    encoded = '%s,%s' % (self._enc(data), source)
                 url = 'https://%s/c.js?d=%s'  % (_setting('SERVER', 'trk2.djangoanalytics.com'), encoded)
+                print ("URL:")
+                print (url)
                 if len(url) <= 2000 and self._client_side_tracking(request, response):
                     pos = self._insertion_point(response.content)
                     if pos != -1:
                         tag = '<script type="text/javascript" async="async" src="%s"></script>\n' % url
-                        response.content = response.content[:pos] + tag + response.content[pos:]
+                        if py3:
+                            response.content = response.content[:pos] + bytes(tag,'utf-8') + response.content[pos:]
+                        else:
+                            response.content = response.content[:pos] + tag + response.content[pos:]
                     else:
                         self._enqueue(url)
                 else:
@@ -157,14 +177,16 @@ class TrackerMiddleware(object):
             data['oh'] += int((time.time() - t1) * 1000)
 
     def _insertion_point(self, html):
+        if py3:
+            html = str(html)
         pos = html.rfind('</body', -500)
         if pos == -1:
             pos = html.rfind('</BODY', -500)
         return pos
-    
+
     def _enqueue(self, url):
         self.queue.put(url.replace('c.js', 's.js', 1))
-        
+
     def _get_visit_id(self, request, response):
         prefix = _setting('COOKIE_PREFIX', 'dac')
         name1 = prefix + '1'
@@ -188,13 +210,13 @@ class TrackerMiddleware(object):
             value = self._enc(dict(lp=request.get_full_path(), rf=request.META.get('HTTP_REFERER', '')))
             response.set_cookie(name, value, max_age=90 * 24 * 60 * 60, domain=settings.SESSION_COOKIE_DOMAIN)
         return ''
-        
+
     def _client_side_tracking(self, request, response):
         if response.status_code != 200 or request.is_ajax():
             return False
         ct = response.get('Content-Type', '').lower()
         return ct.startswith('text/html') or ct.startswith('text/xhtml')
-    
+
     def _get_data(self, request):
         key = 'django_analytics_data'
         if hasattr(request, key):
@@ -229,7 +251,7 @@ class TrackerMiddleware(object):
         except:
             from django.db import connection
             self._aggregate_sql_info(connection, data)
-            
+
     def _aggregate_sql_info(self, connection, data):
         slow_query_time = _setting('SLOW_QUERY_TIME', 500)
         data['qc'] += len(connection.queries)

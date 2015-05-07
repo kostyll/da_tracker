@@ -1,3 +1,4 @@
+setup.cfg
 setup.py
 da_tracker/__init__.py
 da_tracker/middleware.py
