@@ -145,14 +145,11 @@ class TrackerMiddleware(object):
                 data['ct'] = response.get('Content-Type', None)
                 data['vi'] = self._get_visit_id(request, response)
                 data['oh'] += int((time.time() - t1) * 1000)
-                print (source)
                 if py3:
                     encoded = ('%s,%s' % (self._enc(data).decode('utf-8'), source))
                 else:
                     encoded = '%s,%s' % (self._enc(data), source)
                 url = 'https://%s/c.js?d=%s'  % (_setting('SERVER', 'trk2.djangoanalytics.com'), encoded)
-                print ("URL:")
-                print (url)
                 if len(url) <= 2000 and self._client_side_tracking(request, response):
                     pos = self._insertion_point(response.content)
                     if pos != -1:
